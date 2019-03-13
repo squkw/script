@@ -1,6 +1,6 @@
 #!/bin/sh
 #Installation of Shadowsocks-libev
-if [ $LANG=zh_CN.UTF-8 ]; then
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
   echo "安装Shadowsocks-libev"
 else
   echo "Installation of Shadowsocks-libev"
@@ -9,12 +9,21 @@ fi
 git clone https://github.com/shadowsocks/shadowsocks-libev.git
 cd shadowsocks-libev
 git submodule update --init --recursive
-./autogen.sh && ./configure && make -j$CPU_NUM
-if [ $SUDO = yes ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S make install
-encrytedpasswd
-elif [ $SUDO = no ]; then
-make install
+./autogen.sh
+if [ "$OS" = "redhat6" ]; then
+  ./configure --with-mbedtls=$WORKDIRECTORY --with-sodium=$WORKDIRECTORY --with-ev=$WORKDIRECTORY --prefix=$WORKDIRECTORY && make -j$CPU_NUM
+else
+  ./configure --with-mbedtls=$WORKDIRECTORY --with-sodium=$WORKDIRECTORY --prefix=$WORKDIRECTORY && make -j$CPU_NUM
 fi
+
+make install
+
+if [ "$SUDO" = "yes" ]; then
+  $UNENCRYTEDPASSWD
+  echo $PASSWD | sudo -SE setcap cap_net_bind_service+ep $WORKDIRECTORY/bin/ss-server
+  $ENCRYTEDPASSWD
+elif [ "$SUDO" = "no" ]; then
+  setcap cap_net_bind_service+ep $WORKDIRECTORY/bin/ss-server
+fi
+
 cd ..

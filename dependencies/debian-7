@@ -1,2 +1,10 @@
 #!/bin/sh
 . $DEP/debian
+
+if [ "$SUDO" = "yes" ]; then
+  $UNENCRYTEDPASSWD
+  sudo update-rc.d cron defaults
+  $ENCRYTEDPASSWD
+elif [ "$SUDO" = "no" ]; then
+  update-rc.d cron defaults
+fi

@@ -1,50 +1,45 @@
 #!/bin/sh
-export OS=redhat6
-echo "export OS=$OS" >> $WORKDIRECTORY/envsetup.sh
+encrytedpasswd() {
+  export PASSWD=$(echo "$PASSWD" | base64 -i)
+}
 
-if [ $LANG=zh_CN.UTF-8 ]; then
-  echo "进入$WORKDIRECTORY"
+unencrytedpasswd() {
+  export PASSWD=$(echo "$PASSWD" | base64 -d)
+}
+
+export OS=redhat6
+echo "export OS=$OS" >>$WORKDIRECTORY/envsetup.sh
+
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  echo "进入$WORKDIRECTORY/src"
 else
-  echo "work in $WORKDIRECTORY"
+  echo "work in $WORKDIRECTORY/src"
 fi
 
-cd $WORKDIRECTORY
+cd $WORKDIRECTORY/src
 
 # Update system
-if [ $LANG=zh_CN.UTF-8 ]; then
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
   echo "更新系统"
 else
   echo "Update system"
 fi
 if [ $SUDO = yes ]; then
-echo $PASSWD | sudo -S yum update -y
+  $UNENCRYTEDPASSWD
+  echo $PASSWD | sudo -SE yum update -y
+  $ENCRYTEDPASSWD
 elif [ $SUDO = no ]; then
-yum update -y
+  yum update -y
 fi
 
 #Install Redhat 6 and its derivative building dependencies
 . $DEP/autoconf
 . $DEP/libev
 . $DEP/redhat
-
-#Auto uninstall autoconf after the script is completed
-if [ "$UNINSTALL_AUTOCONF" = "yes" ]; then
-if [ $LANG=zh_CN.UTF-8 ]; then
-  echo "卸载autoconf 2.69"
-else
-  echo "uninstall autoconf 2.69"
-fi
-
-cd autoconf-2.69
-if [ $SUDO = yes ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S make uninstall
-encrytedpasswd
-elif [ $SUDO = no ]; then
-make uninstall
-fi
-export AUTOUPDATE_CHECK=no
-cd ..
-elif [ "$UNINSTALL_AUTOCONF" = "no" ] || [ "$UNINSTALL_AUTOCONF" = "" ]; then
-export AUTOUPDATE_CHECK=yes
+if [ "$SUDO" = "yes" ]; then
+  $UNENCRYTEDPASSWD
+  sudo chkconfig crond on
+  $ENCRYTEDPASSWD
+elif [ "$SUDO" = "no" ]; then
+  chkconfig crond on
 fi

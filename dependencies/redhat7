@@ -1,41 +1,57 @@
 #!/bin/sh
-export OS=redhat7
-echo "export OS=$OS" >> $WORKDIRECTORY/envsetup.sh
+encrytedpasswd() {
+  export PASSWD=$(echo "$PASSWD" | base64 -i)
+}
 
-if [ $LANG=zh_CN.UTF-8 ]; then
+unencrytedpasswd() {
+  export PASSWD=$(echo "$PASSWD" | base64 -d)
+}
+
+export OS=redhat7
+echo "export OS=$OS" >>$WORKDIRECTORY/envsetup.sh
+
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
   echo "进入$WORKDIRECTORY"
 else
   echo "work in $WORKDIRECTORY"
 fi
 
-cd $WORKDIRECTORY
+cd $WORKDIRECTORY/src
 
 # Update system
-if [ $LANG=zh_CN.UTF-8 ]; then
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
   echo "更新系统"
 else
   echo "Update system"
 fi
 if [ $SUDO = yes ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S yum update -y
-encrytedpasswd
+  $UNENCRYTEDPASSWD
+  echo $PASSWD | sudo -SE yum update -y
+  $ENCRYTEDPASSWD
 elif [ $SUDO = no ]; then
-yum update -y
+  yum update -y
 fi
 
 # Installation of basic build dependencies(Redhat 7)
-if [ $LANG=zh_CN.UTF-8 ]; then
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
   echo "安装编译Shadowsocks-libev时需要的依赖包(Redhat 7)"
 else
   echo "Installation of basic Shadowsocks-libev build dependencies(Redhat 7)"
 fi
 if [ $SUDO = yes ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S yum install autoconf libev-devel -y
-encrytedpasswd
+  $UNENCRYTEDPASSWD
+  echo $PASSWD | sudo -SE yum install autoconf libev-devel -y
+  $ENCRYTEDPASSWD
 elif [ $SUDO = no ]; then
-yum install autoconf libev-devel -y
+  yum install autoconf libev-devel -y
 fi
 
 . $DEP/redhat
+
+if [ "$SUDO" = "yes" ]; then
+  $UNENCRYTEDPASSWD
+  sudo systemctl enable cron
+  $ENCRYTEDPASSWD
+elif [ "$SUDO" = "no" ]; then
+  systemctl enable cron
+fi

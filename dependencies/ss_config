@@ -1,185 +1,346 @@
 #!/bin/sh
 encrytedpasswd() {
-export PASSWD=`echo "$PASSWD" | base64 -i`
+  export PASSWD=$(echo "$PASSWD" | base64 -i)
 }
 
 unencrytedpasswd() {
-export PASSWD=`echo "$PASSWD" | base64 -d`
+  export PASSWD=$(echo "$PASSWD" | base64 -d)
+}
+
+tls_cert() {
+  have_cert_ask() {
+    if [ "$LANG" = "zh_CN.UTF-8" ]; then
+      read -p "此模式下需要TLS证书,您的服务器上是否有TLS证书?(yes/no) " HAVE_CERT
+    else
+      read -p "A TLS certificate is required in this mode. Is there a TLS certificate on your server?(yes/no) " HAVE_CERT
+    fi
+  }
+  have_cert_ask
+    if [ "$HAVE_CERT" = "" ]; then
+      have_cert_ask
+    elif [ "$HAVE_CERT" = "yes" ]; then
+       if [ "$LANG" = "zh_CN.UTF-8" ]; then
+         read -p "请输入TLS证书的位置: " CERT
+       else
+         read -p "Please enter the location of the TLS certificate: " CERT
+       fi
+       if [ "$LANG" = "zh_CN.UTF-8" ]; then
+         read -p "请输入TLS证书密钥的位置: " CERT_KEY
+       else
+         read -p "Please enter the location of the TLS certificate key: " CERT_KEY
+       fi
+       if [ "$LANG" = "zh_CN.UTF-8" ]; then
+         read -p "请输入您的TLS证书域名: " HOSTNAME
+       else
+         read -p "Please enter your TLS certificate domain name: " HOSTNAME
+       fi
+    elif [ "$HAVE_CERT" = "no" ]; then
+       if [ "$LANG" = "zh_CN.UTF-8" ]; then
+         read -p "是否需要更换模式或根据提示生成证书? (change/yes): " MODE
+       else
+         read -p "Do you want to change the mode or generate a certificate based on the prompts? (change/yes): " MODE
+       fi
+       if [ "$MODE" = "yes" ]; then
+          if [ "$LANG" = "zh_CN.UTF-8" ]; then
+            read -p "此模式下需要生成证书,请将您的IP解析到您的域名上,请输入域名: " HOSTNAME
+          else
+            read -p "In this mode, you need to generate a certificate. Please parse your IP to your domain name. Please enter the domain name: " HOSTNAME
+          fi
+          if [ ! -f "$WORKDIRECTORY/bin/acme" ]; then
+            ln -sf $DEP/acme $WORKDIRECTORY/bin/acme
+          fi
+          . $WORKDIRECTORY/bin/acme
+       fi
+    fi
 }
 
 if [ -f "$PWD/envsetup.sh" ]; then
-. $PWD/envsetup.sh
+  . $PWD/envsetup.sh
 else
-exit 1
+  exit 1
 fi
 
-if [ ! -d "/var/run/shadowsocks" ]; then
-  mkdir /var/run/shadowsocks
+if [ ! -d "$WORKDIRECTORY/pid" ]; then
+  mkdir -v $WORKDIRECTORY/pid
+fi
+
+if [ ! -d "$WORKDIRECTORY/config" ]; then
+  mkdir -v $WORKDIRECTORY/config
 fi
 
 #TCP fast open check
 if [ -f "/proc/sys/net/ipv4/tcp_fastopen" ]; then
-FASTOPEN_CHECK=`cat /proc/sys/net/ipv4/tcp_fastopen`
-if [ "$FASTOPEN_CHECK" = "3" ]; then
-FASTOPEN=--fast-open
+  FASTOPEN_CHECK=$(cat /proc/sys/net/ipv4/tcp_fastopen)
+  if [ "$FASTOPEN_CHECK" = 3 ]; then
+    FASTOPEN=--fast-open
+  else
+    FASTOPEN=
+  fi
 else
-FASTOPEN=
+  if [ "$LANG" = "zh_CN.UTF-8" ]; then
+    echo "当前平台不支持 TCP fast open（需要 Linux 内核版本 > 3.7.0）"
+  else
+    echo "TCP fast open is not supported on this platform (requires Linux kernel > 3.7.0)"
+  fi
 fi
+
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "加密 [chacha20-ietf-poly1305]：" ENCRYPTION
 else
-if [ $LANG=zh_CN.UTF-8 ];
-then
-  echo "不支持TCP FASTOPEN"
+  read -p "Encryption [chacha20-ietf-poly1305]: " ENCRYPTION
+fi
+
+if [ -z $ENCRYPTION ]; then
+  ENCRYPTION=chacha20-ietf-poly1305
+fi
+
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "运行用户 [nobody]：" RUN_USER
 else
-  echo "Not support TCP FASTOPEN"
-fi
-fi
-
-read -p "Encryption(default:chacha20-ietf-poly1305): " ENCRYPTION
-
-if [ -z $ENCRYPTION ]
-then
-ENCRYPTION=chacha20-ietf-poly1305
+  read -p "Run as user [nobody]: " RUN_USER
 fi
 
-read -p "Run User(default:nobody): " RUN_USER
-
-if [ -z $RUN_USER ]
-then
-RUN_USER=nobody
+if [ -z $RUN_USER ]; then
+  RUN_USER=nobody
 fi
 
-read -p "Enable udprelay mode(default:yes):(yes/no) " UDP
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "启用 UDP relay (yes/no) [yes]：" UDP
+else
+  read -p "Enable UDP relay (yes/no) [yes]: " UDP
+fi
 
 if [ "$UDP" = "yes" ] || [ "$UDP" = "" ]; then
-UDP=-u
+  UDP=-u
 elif [ "$UDP" = "no" ]; then
-UDP=
+  UDP=
 fi
 
-read -p "Remote DNS(default:8.8.8.8): " REMOTE_DNS
-
-if [ -z $REMOTE_DNS ]; then
-REMOTE_DNS=8.8.8.8
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "启用 TCP_NODELAY (yes/no) [yes]：" TCP_NODELAY
+else
+  read -p "Enable TCP_NODELAY (yes/no) [yes]: " TCP_NODELAY
 fi
-
-read -p "Enable TCP_NODELAY(default:yes):(yes/no) " TCP_NODELAY
 
 if [ "$TCP_NODELAY" = "yes" ] || [ "$TCP_NODELAY" = "" ]; then
-TCP_NODELAY=--no-delay
+  TCP_NODELAY=--no-delay
 elif [ "$TCP_NODELAY" = "no" ]; then
-TCP_NODELAY=
+  TCP_NODELAY=
 fi
 
-read -p "Enable port reuse(default:yes):(yes/no) " PORT_REUSE
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "启用端口复用（需要 Linux 内核版本 > 3.9.0）(yes/no) [yes]：" PORT_REUSE
+else
+  read -p "Enable port reuse (requires Linux kernel > 3.9.0) (yes/no) [yes]: " PORT_REUSE
+fi
 
 if [ "$PORT_REUSE" = "yes" ] || [ "$PORT_REUSE" = "" ]; then
-PORT_REUSE=--reuse-port
+  PORT_REUSE=--reuse-port
 elif [ "$PORT_REUSE" = "no" ]; then
-PORT_REUSE=
+  PORT_REUSE=
 fi
 
-read -p "Enable SIP003 plugin. (Experimental)(default:yes):(yes/no) " PLUGIN_CHECK
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "启用 SIP003 插件（实验性功能）(yes/no) [yes]：" PLUGIN_CHECK
+else
+  read -p "Enable SIP003 plugin (experimental) (yes/no) [yes]: " PLUGIN_CHECK
+fi
 
 if [ "$PLUGIN_CHECK" = "yes" ] || [ "$PLUGIN_CHECK" = "" ]; then
-read -p "Select plugin: (1.simple-obfs ) " PLUGIN
-case "$PLUGIN" in
-  1|simple-obfs|"")
-read -p "Set SIP003 plugin options. (Experimental)(default:tls):(tls/http) " PLUGIN_OPTIONS
-if [ "$PLUGIN_OPTIONS" = "tls" ] || [ "$PLUGIN_OPTIONS" = "" ]; then
-PLUGIN_OPTIONS=tls
-elif [ "$PLUGIN_OPTIONS" = "http" ]; then
-PLUGIN_OPTIONS=http
-else if [ $LANG=zh_CN.UTF-8 ]; then
-  echo "参数无效"
-else
-  echo "Invalid parameters"
-fi
-fi
-esac
+  if [ "$KCPTUN_INSTALL" = "yes" ] && [ "$V2RAY_PLUGIN_INSTALL" = "no" ]; then
+    read -p "Select plugin: (1.kcptun )(default:kcptun) " PLUGIN
+  elif [ "$V2RAY_PLUGIN_INSTALL" = "yes" ] && [ "$KCPTUN_INSTALL" = "no" ]; then
+    read -p "Select plugin: (2.v2ray_plugin )(default:v2ray_plugin) " PLUGIN
+  elif [ "$V2RAY_PLUGIN_INSTALL" = "yes" ] && [ "$KCPTUN_INSTALL" = "yes" ]; then
+    read -p "Select plugin: (1.kcptun 2.v2ray_plugin )(default:v2ray_plugin) " PLUGIN
+  fi
+
+  case "$PLUGIN" in
+    1 | kcptun)
+      PLUGIN=kcptun-server
+      UDP=
+      TCP_NODELAY=
+      FASTOPEN=
+      kcptun_plugin_options_check() {
+        read -p "Set SIP003 plugin options. (Experimental)(default:crypt is salsa20 mode is normal mtu is 1200 parityshard is 0 dscp is 46 nocomp) " PLUGIN_OPTIONS
+      }
+      kcptun_plugin_options_check
+      if [ "$PLUGIN_OPTIONS" = "" ]; then
+        PLUGIN_OPTIONS="crypt=salsa20;mode=normal;mtu=1200;parityshard=0;dscp=46;nocomp"
+      fi
+      ;;
+    2 | v2ray_plugin | "")
+      v2ray_plugin() {
+      PLUGIN=v2ray-plugin
+      v2ray_plugin_options_check() {
+        read -p "Set SIP003 plugin options. (Experimental)(default:quic):(websocket_http/websocket_https/quic) " PLUGIN_OPTIONS
+      }
+      v2ray_plugin_options_check
+      if [ "$PLUGIN_OPTIONS" = "quic" ] || [ "$PLUGIN_OPTIONS" = "" ]; then
+        UDP=
+        TCP_NODELAY=
+        FASTOPEN=
+        tls_cert
+        if [ "$HAVE_CERT" = "yes" ]; then
+          PLUGIN_OPTIONS="server;mode=quic;host=$HOSTNAME;cert=$CERT;key=$CERT_KEY"
+        else
+          PLUGIN_OPTIONS="server;mode=quic;host=$HOSTNAME"
+        fi
+      if [ "$MODE" = "change" ]; then
+        v2ray_plugin
+      fi
+      elif [ "$PLUGIN_OPTIONS" = "websocket_http" ]; then
+          if [ "$LANG" = "zh_CN.UTF-8" ]; then
+            read -p "请输入域名: " HOSTNAME
+          else
+            read -p "Please enter the domain name: " HOSTNAME
+          fi
+        PLUGIN_OPTIONS="server;host=$HOSTNAME"
+      elif [ "$PLUGIN_OPTIONS" = "websocket_https" ]; then
+        tls_cert
+        if [ "$FASTOPEN_CHECK" = 3 ]; then
+          if [ "$HAVE_CERT" = "yes" ]; then
+            PLUGIN_OPTIONS="server;tls;host=$HOSTNAME;fast-open;cert=$CERT;key=$CERT_KEY"
+          else
+            PLUGIN_OPTIONS="server;tls;host=$HOSTNAME;fast-open"
+          fi
+        else
+          if [ "$HAVE_CERT" = "yes" ]; then
+            PLUGIN_OPTIONS="server;tls;host=$HOSTNAME;cert=$CERT;key=$CERT_KEY"
+          else
+            PLUGIN_OPTIONS="server;tls;host=$HOSTNAME"
+          fi
+        fi
+      if [ "$MODE" = "change" ]; then
+        v2ray_plugin
+      fi
+      else
+        if [ "$LANG" = "zh_CN.UTF-8" ]; then
+          echo "参数无效"
+        else
+          echo "Invalid parameters"
+        fi
+        v2ray_plugin_options_check
+      fi
+      }
+      v2ray_plugin
+      ;;
+  esac
 elif [ "$PLUGIN_CHECK" = "no" ]; then
-PLUGIN_CHECK=no
+  PLUGIN_CHECK=no
 fi
 
 port_check() {
-read -p "port: " PORT
+  read -p "port: " PORT
 
-if [ "$PORT" = "" ]; then
-  port_check
-else
-PORT_USE_CHECK=`lsof -i :$PORT | grep -v "PID" | awk '{print $2}'`
-if [ "$PORT_USE_CHECK" != "" ] || [ "$PORT" = "" ]; then
-  port_check
-else
-if [ -f "$WORKDIRECTORY/ss_run" ]; then
-PORT_EXIST=`grep -rwo "\-p $PORT" $WORKDIRECTORY/ss_run`
-PID_NUM=`grep -o 'ss-server' $WORKDIRECTORY/ss_run | wc -l`
-PID_NUM=`expr $PID_NUM + 1`
-else
-PORT_EXIST=""
-PID_NUM=1
-FIRST_RUN=yes
-fi
-if [ "$PORT_EXIST" != "" ];then
-  port_check
-else
-if [ "$PORT" -lt 8300 ] || [ "$PORT" -gt 8400 ]; then
-read -p "passwd: " PASSWORD
+  if [ "$PORT" = "" ]; then
+    port_check
+  else
+    if [ "$SUDO" = "yes" ]; then
+      $UNENCRYTEDPASSWD
+      PORT_USE_CHECK=$(echo $PASSWD | sudo -SE sh -c "lsof -i:$PORT")
+      $ENCRYTEDPASSWD
+    elif [ "$SUDO" = "no" ]; then
+      PORT_USE_CHECK=$(lsof -i:$PORT)
+    fi
+    if [ "$PORT_USE_CHECK" != "" ] || [ "$PORT" = "" ]; then
+      port_check
+    else
+      if [ -f "$WORKDIRECTORY/config/ss_run1" ]; then
+        PORT_EXIST=$(grep -rwo "\-p $PORT" $WORKDIRECTORY/config)
+        PID_NUM=$(grep -ro 'ss-server' $WORKDIRECTORY/config | wc -l)
+        PID_NUM=$(expr $PID_NUM + 1)
+      else
+        PORT_EXIST=""
+        PID_NUM=1
+        FIRST_RUN=yes
+      fi
+      if [ "$PORT_EXIST" != "" ]; then
+        port_check
+      else
+        if [ "$PORT" -lt 8300 ] || [ "$PORT" -gt 8400 ]; then
+          read -p "passwd: " PASSWORD
 
-IPV6=`curl -I -s --connect-timeout 5 ipv6.google.com -w %{http_code} | tail -n1`
-if [ "$PLUGIN_CHECK" = "yes" ] || [ "$PLUGIN_CHECK" = "" ]; then
-if [ "$IPV6" = "200" ]; then
-echo "ss-server -s 0.0.0.0 -s :: -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -d $REMOTE_DNS -6 $TCP_NODELAY $FASTOPEN $PORT_REUSE --plugin obfs-server --plugin-opts "obfs=$PLUGIN_OPTIONS" -f /var/run/shadowsocks/shadowsocks-$PID_NUM.pid" >> $WORKDIRECTORY/ss_run
-else
-echo "ss-server -s 0.0.0.0 -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -d $REMOTE_DNS $TCP_NODELAY $FASTOPEN $PORT_REUSE --plugin obfs-server --plugin-opts "obfs=$PLUGIN_OPTIONS" -f /var/run/shadowsocks/shadowsocks-$PID_NUM.pid" >> $WORKDIRECTORY/ss_run
-fi
-elif [ "$PLUGIN_CHECK" = "no" ]; then
-if [ "$IPV6" = "200" ]; then
-echo "ss-server -s 0.0.0.0 -s :: -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -d $REMOTE_DNS -6 $TCP_NODELAY $FASTOPEN $PORT_REUSE -f /var/run/shadowsocks/shadowsocks-$PID_NUM.pid" >> $WORKDIRECTORY/ss_run
-else
-echo "ss-server -s 0.0.0.0 -p $PORT[$ELEMENTS_NUMBER] -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -d $REMOTE_DNS $TCP_NODELAY $FASTOPEN $PORT_REUSE -f /var/run/shadowsocks/shadowsocks-$PID_NUM.pid" >> $WORKDIRECTORY/ss_run
-fi
-fi
-elif [ $LANG=zh_CN.UTF-8 ]; then
-  echo "请使用小于8300或大于8400的端口"
-  port_check
-else
-  echo "Please use a port smaller than 8300 or larger than 8400"
-  port_check
-fi
-fi
-fi
-fi
+          IPV4=$(curl -s v4.ident.me)
+          if [ "$PLUGIN" = "kcptun-server" ]; then
+            IPV6=$(curl -s v6.ident.me)
+            IPV6="[$IPV6]"
+          else
+            IPV6=$(curl -s v6.ident.me)
+          fi
+          if [ "$PLUGIN_CHECK" = "yes" ] || [ "$PLUGIN_CHECK" = "" ]; then
+            if [ "$IPV6" != "" ]; then
+              echo "#!""/bin/sh" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+              echo "nohup ss-server -s $IPV4 -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -6 $TCP_NODELAY $FASTOPEN $PORT_REUSE --plugin $PLUGIN --plugin-opts \"$PLUGIN_OPTIONS\" >/dev/null 2>&1 & echo \$! >$WORKDIRECTORY/pid/shadowsocks-$PID_NUM.pid" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+              PID_NUM_EXTRA=$(expr $PID_NUM + 1)
+              echo "#!""/bin/sh" >>$WORKDIRECTORY/config/ss_run$PID_NUM_EXTRA
+              echo "nohup ss-server -s $IPV6 -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -6 $TCP_NODELAY $FASTOPEN $PORT_REUSE --plugin $PLUGIN --plugin-opts \"$PLUGIN_OPTIONS\" >/dev/null 2>&1 & echo \$! >$WORKDIRECTORY/pid/shadowsocks-$PID_NUM_EXTRA.pid" >>$WORKDIRECTORY/config/ss_run$PID_NUM_EXTRA
+            else
+              echo "#!""/bin/sh" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+              echo "nohup ss-server -s $IPV4 -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP $TCP_NODELAY $FASTOPEN $PORT_REUSE --plugin $PLUGIN --plugin-opts \"$PLUGIN_OPTIONS\" >/dev/null 2>&1 & echo \$! >$WORKDIRECTORY/pid/shadowsocks-$PID_NUM.pid" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+            fi
+          elif [ "$PLUGIN_CHECK" = "no" ]; then
+            if [ "$IPV6" != "" ]; then
+              echo "#!""/bin/sh" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+              echo "ss-server -s 0.0.0.0 -s :: -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP -6 $TCP_NODELAY $FASTOPEN $PORT_REUSE -f $WORKDIRECTORY/pid/shadowsocks-$PID_NUM.pid" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+            else
+              echo "#!""/bin/sh" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+              echo "ss-server -s 0.0.0.0 -p $PORT -k $PASSWORD -m $ENCRYPTION -a $RUN_USER $UDP $TCP_NODELAY $FASTOPEN $PORT_REUSE -f $WORKDIRECTORY/pid/shadowsocks-$PID_NUM.pid" >>$WORKDIRECTORY/config/ss_run$PID_NUM
+            fi
+          fi
+        elif [ "$LANG" = "zh_CN.UTF-8" ]; then
+          echo "请使用小于8300或大于8400的端口"
+          port_check
+        else
+          echo "Please use a port smaller than 8300 or larger than 8400"
+          port_check
+        fi
+      fi
+    fi
+  fi
 
-if [ "$OS" = "redhat7" ]; then
-if [ "$SUDO" = "yes" ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S firewall-cmd --permanent --zone=public --add-port=$PORT/udp
-echo $PASSWD | sudo -S firewall-cmd --permanent --zone=public --add-port=$PORT/tcp
-echo $PASSWD | sudo -S firewall-cmd --reload
-encrytedpasswd
-elif [ "$SUDO" = "no" ] || [ "$SUDO" = "" ]; then
-firewall-cmd --permanent --zone=public --add-port=$PORT/udp
-firewall-cmd --permanent --zone=public --add-port=$PORT/tcp
-firewall-cmd --reload
-fi
-elif [ "$OS" = "redhat6" ]; then
-if [ "$SUDO" = "yes" ]; then
-unencrytedpasswd
-echo $PASSWD | sudo -S iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
-echo $PASSWD | sudo -S iptables -I INPUT -p udp --dport $PORT -j ACCEPT
-echo $PASSWD | sudo -S service iptables save
-encrytedpasswd
-elif [ "$SUDO" = "no" ] || [ "$SUDO" = "" ]; then
-iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
-iptables -I INPUT -p udp --dport $PORT -j ACCEPT
-service iptables save
-fi
-fi
+  if [ "$OS" = "redhat7" ]; then
+    if [ "$SUDO" = "yes" ]; then
+      $UNENCRYTEDPASSWD
+      echo $PASSWD | sudo -SE firewall-cmd --permanent --zone=public --add-port=$PORT/udp
+      echo $PASSWD | sudo -SE firewall-cmd --permanent --zone=public --add-port=$PORT/tcp
+      echo $PASSWD | sudo -SE firewall-cmd --reload
+      $ENCRYTEDPASSWD
+    elif [ "$SUDO" = "no" ] || [ "$SUDO" = "" ]; then
+      firewall-cmd --permanent --zone=public --add-port=$PORT/udp
+      firewall-cmd --permanent --zone=public --add-port=$PORT/tcp
+      firewall-cmd --reload
+    fi
+  elif [ "$OS" = "redhat6" ]; then
+    if [ "$SUDO" = "yes" ]; then
+      $UNENCRYTEDPASSWD
+      echo $PASSWD | sudo -SE iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+      echo $PASSWD | sudo -SE iptables -I INPUT -p udp --dport $PORT -j ACCEPT
+      echo $PASSWD | sudo -SE service iptables save
+      $ENCRYTEDPASSWD
+    elif [ "$SUDO" = "no" ] || [ "$SUDO" = "" ]; then
+      iptables -I INPUT -p tcp --dport $PORT -j ACCEPT
+      iptables -I INPUT -p udp --dport $PORT -j ACCEPT
+      service iptables save
+    fi
+  fi
 }
 
 port_check
 
-unset SUDO
+if [ "$LANG" = "zh_CN.UTF-8" ]; then
+  read -p "是否立即启动 Shadowsocks 服务端？(yes/no) [yes]：" RUN_SERVER
+else
+  read -p "Start Shadowsocks server now? (yes/no) [yes]: " RUN_SERVER
+fi
+
+if [ "$FIRST_RUN" = "yes" ]; then
+  ln -vf $DEP/run $WORKDIRECTORY/bin/run
+fi
+if [ "$RUN_SERVER" = "yes" ] || [ "$RUN_SERVER" = "" ]; then
+  . $WORKDIRECTORY/bin/run
+fi
+
 unset ENCRYPTION
 unset PLUGIN_CHECK
 unset PORT
@@ -192,5 +353,11 @@ unset TCP_NODELAY
 unset PLUGIN
 unset PLUGIN_OPTIONS
 unset FASTOPEN_CHECK
+unset PORT_EXIST
 unset PORT_USE_CHECK
-unset PID_NUM
+unset RUN_SERVER
+unset V2RAY_PLUGIN_INSTALL
+unset KCPTUN_INSTALL
+unset HAVE_CERT
+unset CERT
+unset MODE
